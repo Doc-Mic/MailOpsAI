@@ -198,6 +198,26 @@ docs/screenshots/n8n/
 
 The screenshots cover the FastAPI frontend, API documentation, n8n workflow, webhook setup, execution success, and output screens.
 
+### Python Implementation Screenshots
+
+![Python frontend homepage](docs/screenshots/python/python_homepage.png)
+
+![Python email analysis result](docs/screenshots/python/python_result_output.png)
+
+![FastAPI documentation](docs/screenshots/python/api_docs.png)
+
+### n8n Implementation Screenshots
+
+![n8n workflow overview](docs/screenshots/n8n/n8n_workflow.png)
+
+![n8n webhook setup](docs/screenshots/n8n/n8n_webhook.png)
+
+![n8n execution success](docs/screenshots/n8n/n8n_execution_success.png)
+
+![n8n frontend result](docs/screenshots/n8n/n8n_frontend_result.png)
+
+![n8n result output](docs/screenshots/n8n/n8n_result_output.png)
+
 ## Team and Project Information
 
 - Project: MailOpsAI
@@ -218,4 +238,3 @@ This repository intentionally excludes:
 - generated build folders
 - temporary files
 - packaged zip archives
-
