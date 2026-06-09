@@ -1,0 +1,371 @@
+{
+  "id": "rGeiaupKbnPaXjdS",
+  "name": "MailOpsAI - n8n Multi-Agent Email Operations",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mailopsai",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -980,
+        0
+      ],
+      "webhookId": "mailopsai-local-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst email = body.email_text || body.email || '';\nif (!email || email.trim().length < 5) {\n  throw new Error('email_text is required.');\n}\nreturn [{ json: { email_text: email, agent_results: {}, provider_trace: {} } }];"
+      },
+      "id": "prepare-input",
+      "name": "Prepare Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $vars.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", messages: [{ role: \"system\", content: \"You are MailOpsAI. Return valid JSON only. No markdown.\" }, { role: \"user\", content: \"Analyze this email and return the required agent JSON: \" + $json.email_text + \"\\n\\nRequired output for Classification Agent: return JSON with keys agent_name, design_pattern, category, priority, sentiment, action_required, reasoning. Use agent_name \\\"Email Classification Agent\\\" and design_pattern \\\"ReAct\\\".\" }], temperature: 0.3 }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "classification-agent",
+      "name": "Classification Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -510,
+        -160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function getBase(nodeName) {\n  try {\n    return $items(nodeName)?.[0]?.json || {};\n  } catch (error) {\n    return {};\n  }\n}\n\nfunction extractJson(content) {\n  if (!content) return null;\n  const raw = String(content).replace(/^\\s*```json\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (!match) return null;\n    try {\n      return JSON.parse(match[0]);\n    } catch (inner) {\n      return null;\n    }\n  }\n}\n\nconst base = getBase('Prepare Input');\nconst email = base.email_text || '';\nconst lower = email.toLowerCase();\nconst isComplaint = ['complaint', 'delayed', 'delay', 'damaged', 'wrong', 'issue', 'problem', 'urgent', 'replacement'].some((word) => lower.includes(word));\nconst fallback = {\n  agent_name: 'Email Classification Agent',\n  design_pattern: 'ReAct',\n  category: isComplaint ? 'Client Complaint' : 'General Business Email',\n  priority: lower.includes('urgent') || lower.includes('today') ? 'High' : 'Medium',\n  sentiment: isComplaint ? 'Negative' : 'Neutral',\n  action_required: true,\n  reasoning: 'Groq HTTP Request node failed or returned no completion; safe structured fallback used.',\n  provider_used: 'fallback'\n};\n\nconst content = $json?.choices?.[0]?.message?.content;\nconst parsed = extractJson(content);\nconst provider = content ? 'groq' : 'fallback';\nconst classification = provider === 'groq'\n  ? { ...fallback, ...parsed, provider_used: 'groq' }\n  : fallback;\n\nreturn [{\n  json: {\n    ...base,\n    agent_results: {\n      ...(base.agent_results || {}),\n      classification_agent: classification\n    },\n    provider_trace: {\n      ...(base.provider_trace || {}),\n      classification_agent: provider\n    }\n  }\n}];"
+      },
+      "id": "parse-classification",
+      "name": "Parse Classification Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -270,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $vars.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", messages: [{ role: \"system\", content: \"You are MailOpsAI. Return valid JSON only. No markdown.\" }, { role: \"user\", content: \"Analyze this email and return the required agent JSON: \" + $json.email_text + \"\\n\\nRequired output for Response Drafting Agent: return JSON with keys agent_name, design_pattern, tone, subject, draft_reply. Use agent_name \\\"Response Drafting Agent\\\" and design_pattern \\\"Planner / Chain\\\".\" }], temperature: 0.3 }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "response-agent",
+      "name": "Response Drafting Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -30,
+        -160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function getBase(nodeName) {\n  try {\n    return $items(nodeName)?.[0]?.json || {};\n  } catch (error) {\n    return {};\n  }\n}\n\nfunction extractJson(content) {\n  if (!content) return null;\n  const raw = String(content).replace(/^\\s*```json\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (!match) return null;\n    try {\n      return JSON.parse(match[0]);\n    } catch (inner) {\n      return null;\n    }\n  }\n}\n\nconst base = getBase('Parse Classification Result');\nconst fallback = {\n  agent_name: 'Response Drafting Agent',\n  design_pattern: 'Planner / Chain',\n  tone: 'Professional and empathetic',\n  subject: 'Re: Your Email',\n  draft_reply: 'Dear Customer,\\n\\nThank you for reaching out. We understand the concern and will review this matter immediately. Our team will provide an urgent update and replacement path today.\\n\\nBest regards,\\nMailOpsAI Team',\n  provider_used: 'fallback'\n};\n\nconst content = $json?.choices?.[0]?.message?.content;\nconst parsed = extractJson(content);\nconst provider = content ? 'groq' : 'fallback';\nconst response = provider === 'groq'\n  ? { ...fallback, ...parsed, provider_used: 'groq' }\n  : fallback;\n\nreturn [{\n  json: {\n    ...base,\n    agent_results: {\n      ...(base.agent_results || {}),\n      response_agent: response\n    },\n    provider_trace: {\n      ...(base.provider_trace || {}),\n      response_agent: provider\n    }\n  }\n}];"
+      },
+      "id": "parse-response",
+      "name": "Parse Response Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        210,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $vars.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", messages: [{ role: \"system\", content: \"You are MailOpsAI. Return valid JSON only. No markdown.\" }, { role: \"user\", content: \"Analyze this email and return the required agent JSON: \" + $json.email_text + \"\\n\\nRequired output for Task and Follow-up Agent: return JSON with keys agent_name, design_pattern, tasks, follow_up_recommendation, reflection. tasks must be an array of objects with task, deadline, suggested_owner. Use agent_name \\\"Task and Follow-up Agent\\\" and design_pattern \\\"Reflection\\\".\" }], temperature: 0.3 }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "task-agent",
+      "name": "Task and Follow-up Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        450,
+        -160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function getBase(nodeName) {\n  try {\n    return $items(nodeName)?.[0]?.json || {};\n  } catch (error) {\n    return {};\n  }\n}\n\nfunction extractJson(content) {\n  if (!content) return null;\n  const raw = String(content).replace(/^\\s*```json\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (!match) return null;\n    try {\n      return JSON.parse(match[0]);\n    } catch (inner) {\n      return null;\n    }\n  }\n}\n\nconst base = getBase('Parse Response Result');\nconst email = base.email_text || '';\nconst fallback = {\n  agent_name: 'Task and Follow-up Agent',\n  design_pattern: 'Reflection',\n  tasks: [\n    {\n      task: 'Review the shipment issue and arrange replacement',\n      deadline: email.toLowerCase().includes('today') ? 'Today' : 'Within 1 business day',\n      suggested_owner: 'Operations Team'\n    }\n  ],\n  follow_up_recommendation: 'Follow up with the customer today and confirm replacement timing.',\n  reflection: 'Groq HTTP Request node failed or returned no completion; safe structured fallback used.',\n  provider_used: 'fallback'\n};\n\nconst content = $json?.choices?.[0]?.message?.content;\nconst parsed = extractJson(content);\nconst provider = content ? 'groq' : 'fallback';\nconst task = provider === 'groq'\n  ? { ...fallback, ...parsed, provider_used: 'groq' }\n  : fallback;\nif (!Array.isArray(task.tasks) || task.tasks.length === 0) task.tasks = fallback.tasks;\n\nreturn [{\n  json: {\n    ...base,\n    agent_results: {\n      ...(base.agent_results || {}),\n      task_followup_agent: task\n    },\n    provider_trace: {\n      ...(base.provider_trace || {}),\n      task_followup_agent: provider\n    }\n  }\n}];"
+      },
+      "id": "parse-task",
+      "name": "Parse Task Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        690,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const classification = $json.agent_results.classification_agent || {};\nconst response = $json.agent_results.response_agent || {};\nconst task = $json.agent_results.task_followup_agent || {};\nconst trace = $json.provider_trace || {};\nconst providers = [trace.classification_agent, trace.response_agent, trace.task_followup_agent];\nconst providerUsed = providers.length === 3 && providers.every((provider) => provider === 'groq') ? 'groq' : 'fallback';\nconst owner = task.tasks?.[0]?.suggested_owner || 'Operations Team';\nconst followUp = (task.follow_up_recommendation || 'Follow up as needed.').replace(/\\.$/, '');\n\nreturn [{\n  json: {\n    provider_used: providerUsed,\n    provider_trace: trace,\n    input_email: $json.email_text,\n    classification_agent: classification,\n    response_agent: response,\n    task_followup_agent: task,\n    final_summary: {\n      provider_used: providerUsed,\n      overall_priority: classification.priority || 'Medium',\n      recommended_action: `Assign to ${owner} and respond using the drafted reply.`,\n      final_response: `This email is classified as ${classification.category || 'General Business Email'} with ${classification.priority || 'Medium'} priority. Use the drafted response, assign the task to ${owner}, and follow this timing: ${followUp}.`\n    }\n  }\n}];"
+      },
+      "id": "orchestrator",
+      "name": "Orchestrator / Merge / Code node",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        930,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1170,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: 'Optional Gemini fallback branch for MailOpsAI. Connect this from failed Groq paths if desired.' }] }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "optional-gemini-fallback",
+      "name": "Optional Gemini Fallback HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -510,
+        240
+      ],
+      "disabled": true,
+      "notes": "Optional fallback branch. Enable only if GEMINI_API_KEY is configured; keep keys in environment variables or credentials."
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "Classification Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification Result": {
+      "main": [
+        [
+          {
+            "node": "Response Drafting Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Drafting Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Response Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response Result": {
+      "main": [
+        [
+          {
+            "node": "Task and Follow-up Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task and Follow-up Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Task Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Task Result": {
+      "main": [
+        [
+          {
+            "node": "Orchestrator / Merge / Code node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orchestrator / Merge / Code node": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "description": "Real importable MailOpsAI n8n workflow using base n8n HTTP Request nodes. Agent nodes call Groq with Authorization: Bearer {{$vars.GROQ_API_KEY}} and parser nodes fall back only when the Groq HTTP response has no completion."
+  },
+  "tags": []
+}

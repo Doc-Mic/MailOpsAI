@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MailOpsAI n8n</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">n8n Implementation</p>
+          <h1>MailOpsAI</h1>
+          <p class="subtitle">Multi-Agent AI System for Intelligent Email Operations</p>
+        </div>
+        <span class="status-pill">Webhook</span>
+      </header>
+
+      <section class="input-panel">
+        <label for="emailInput">Email content</label>
+        <textarea id="emailInput" placeholder="Paste an email and send it to your n8n webhook...">Hello, our order is delayed and we need an urgent update today.</textarea>
+        <div class="actions">
+          <button id="analyzeBtn" type="button">Analyze Email</button>
+          <span id="loadingState" class="loading" hidden>Waiting for n8n workflow...</span>
+        </div>
+        <p id="errorBox" class="error" hidden></p>
+      </section>
+
+      <section id="results" class="results" hidden>
+        <article class="card">
+          <div class="card-head">
+            <h2>Classification Agent</h2>
+            <span id="classificationPattern"></span>
+          </div>
+          <dl id="classificationOutput"></dl>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <h2>Response Drafting Agent</h2>
+            <span id="responsePattern"></span>
+          </div>
+          <dl id="responseOutput"></dl>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <h2>Task &amp; Follow-up Agent</h2>
+            <span id="taskPattern"></span>
+          </div>
+          <div id="taskOutput"></div>
+        </article>
+
+        <article class="card summary-card">
+          <div class="card-head">
+            <h2>Final Orchestrator Summary</h2>
+            <span>Supervisor / Router</span>
+          </div>
+          <dl id="summaryOutput"></dl>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
